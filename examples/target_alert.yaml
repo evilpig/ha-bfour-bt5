@@ -1,0 +1,34 @@
+# Paste into one new automation's Edit in YAML editor.
+# Replace the sensor ID if yours differs and replace the phone action.
+# Helpers must already exist. Probe and target must use the SAME unit.
+alias: BFOUR - target temperature alert
+description: Notify once per arming when the probe exceeds the chosen target.
+mode: single
+triggers:
+  - trigger: state
+    entity_id:
+      - sensor.bfour_grill_bt5_0_probe_1
+      - input_number.bfour_target_temperature
+    to: null
+  - trigger: state
+    entity_id: input_boolean.bfour_alert_armed
+    to: "on"
+conditions:
+  - condition: state
+    entity_id: input_boolean.bfour_alert_armed
+    state: "on"
+  - condition: numeric_state
+    entity_id: sensor.bfour_grill_bt5_0_probe_1
+    above: input_number.bfour_target_temperature
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: BFOUR temperature alert
+      message: >-
+        Probe 1 is {{ states('sensor.bfour_grill_bt5_0_probe_1') }}
+        {{ state_attr('sensor.bfour_grill_bt5_0_probe_1', 'unit_of_measurement') }}.
+        Target: {{ states('input_number.bfour_target_temperature') }}
+        {{ state_attr('input_number.bfour_target_temperature', 'unit_of_measurement') }}.
+  - action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.bfour_alert_armed

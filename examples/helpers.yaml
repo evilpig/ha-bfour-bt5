@@ -1,0 +1,18 @@
+# Optional YAML alternative to creating these helpers in the UI.
+# Fahrenheit example. Merge into an existing configuration; do not duplicate keys.
+# For Celsius use min: 0, max: 100, and unit_of_measurement: "°C".
+# These ranges reflect the BF-30 probe, not cooking-temperature recommendations.
+input_number:
+  bfour_target_temperature:
+    name: BFOUR target temperature
+    min: 32
+    max: 212
+    step: 1
+    mode: box
+    unit_of_measurement: "°F"
+    icon: mdi:thermometer
+
+input_boolean:
+  bfour_alert_armed:
+    name: BFOUR alert armed
+    icon: mdi:bell-ring

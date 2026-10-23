@@ -23,10 +23,12 @@
   "options": {
     "step": {
       "init": {
-        "title": "Temperature display",
-        "description": "Choose the display unit for all probes. Home Assistant converts the readings; the thermometer display is unchanged. You can also choose a unit for each sensor in its entity settings.",
+        "title": "Connection and temperature",
+        "description": "Persistent keeps one Bluetooth slot open and publishes the latest reading at the interval below. Intermittent connects and disconnects for each read. Interval: 5–300 seconds. Phone apps may compete for the thermometer connection.",
         "data": {
-          "temperature_unit": "Temperature unit"
+          "temperature_unit": "Temperature unit",
+          "connection_mode": "Connection mode",
+          "update_interval": "Update interval (seconds)"
         }
       }
     }

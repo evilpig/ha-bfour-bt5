@@ -1,7 +1,7 @@
 {
   "domain": "bfour_bt5",
   "name": "BFOUR Grill BT5.0",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "bluetooth": [
     {
       "local_name": "Grill BT5.0",

@@ -1,0 +1,12 @@
+# Paste into a dashboard Manual card.
+type: entities
+title: BFOUR cooking thermometer
+entities:
+  - entity: sensor.bfour_grill_bt5_0_probe_1
+    name: Current temperature
+  - entity: input_number.bfour_target_temperature
+    name: Target temperature
+  - entity: input_boolean.bfour_alert_armed
+    name: Alert armed
+  - entity: button.bfour_grill_bt5_0_reconnect
+    name: Reconnect / refresh

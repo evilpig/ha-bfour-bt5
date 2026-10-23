@@ -39,6 +39,7 @@ class BFourConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=f"Grill BT5.0 {address[-5:]}",
                     data={"address": address, "probe_count": user_input["probe_count"]},
+                    options={"connection_mode": "persistent", "update_interval": 5},
                 )
         return self.async_show_form(
             step_id="user", errors=errors,
@@ -66,10 +67,18 @@ class BFourOptionsFlow(OptionsFlow):
                 registry.async_update_entity_options(entity.entity_id, "sensor", options)
             return self.async_create_entry(title="", data={
                 **self.config_entry.options, "temperature_unit": unit,
+                "connection_mode": user_input["connection_mode"],
+                "update_interval": user_input["update_interval"],
             })
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
+                vol.Required("connection_mode", default=self.config_entry.options.get(
+                    "connection_mode", "intermittent"
+                )): vol.In({"persistent": "Persistent (stay connected)", "intermittent": "Intermittent (connect for each read)"}),
+                vol.Required("update_interval", default=self.config_entry.options.get(
+                    "update_interval", 30
+                )): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
                 vol.Required("temperature_unit", default=self.config_entry.options.get(
                     "temperature_unit", self.hass.config.units.temperature_unit
                 )): vol.In({"°C": "Celsius (°C)", "°F": "Fahrenheit (°F)"}),

@@ -16,8 +16,16 @@ async def async_setup_entry(hass, entry):
         {"address": coordinator.address, "connectable": True},
         bluetooth.BluetoothScanningMode.PASSIVE,
     ))
+    entry.async_on_unload(entry.add_update_listener(async_options_updated))
     return True
 
 
 async def async_unload_entry(hass, entry):
-    return await hass.config_entries.async_unload_platforms(entry, [Platform.SENSOR, Platform.BUTTON])
+    unloaded = await hass.config_entries.async_unload_platforms(entry, [Platform.SENSOR, Platform.BUTTON])
+    if unloaded:
+        await entry.runtime_data.async_shutdown()
+    return unloaded
+
+
+async def async_options_updated(hass, entry):
+    await hass.config_entries.async_reload(entry.entry_id)

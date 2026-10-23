@@ -70,6 +70,12 @@ class CoordinatorStub:
         self.config_entry = kwargs.get("config_entry")
         self.last_update_success = True
 
+    def async_set_update_error(self, error):
+        self.last_update_success = False
+
+    async def async_shutdown(self):
+        pass
+
 
 stub_module("bleak", BleakError=BleakError)
 connector = stub_module("bleak_retry_connector", BleakClientWithServiceCache=object,
@@ -86,14 +92,14 @@ from bt5_test.coordinator import BFourCoordinator
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.reader = BFourCoordinator(object(), types.SimpleNamespace(data={
+        self.reader = BFourCoordinator(object(), types.SimpleNamespace(options={}, data={
             "address": "AA:BB:CC:DD:EE:FF", "probe_count": 1}))
         bt.async_ble_device_from_address = lambda *a, **kw: object()
         bt.async_last_service_info = lambda *a, **kw: types.SimpleNamespace(time=monotonic())
         service = types.SimpleNamespace(get_characteristic=lambda uuid: object())
         self.client = types.SimpleNamespace(
             services=types.SimpleNamespace(get_service=lambda uuid: service),
-            start_notify=AsyncMock(), disconnect=AsyncMock())
+            start_notify=AsyncMock(), disconnect=AsyncMock(), is_connected=True)
         connector.establish_connection.reset_mock(side_effect=True)
         connector.establish_connection.return_value = self.client
 
@@ -168,6 +174,75 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*tasks)
         refresh.assert_awaited_once()
 
+    async def test_persistent_reuses_link_and_publishes_latest_frame(self):
+        self.reader.mode = "persistent"
+        callbacks = []
+        async def notify(uuid, callback):
+            callbacks.append(callback)
+            callback(None, bytes.fromhex("5500010d"))
+        self.client.start_notify.side_effect = notify
+        self.assertEqual(await self.reader._async_update_data(), (26.9,))
+        self.client.disconnect.assert_not_awaited()
+        callbacks[0](None, bytes.fromhex("5500010e"))
+        self.assertEqual(await self.reader._async_update_data(), (27.0,))
+        self.assertEqual(connector.establish_connection.await_count, 1)
+        self.assertEqual(self.client.start_notify.await_count, 1)
+        await self.reader.async_shutdown()
+        self.client.disconnect.assert_awaited_once()
+
+    async def test_persistent_disconnect_invalidates_immediately(self):
+        self.reader.mode = "persistent"
+        async def notify(uuid, callback):
+            callback(None, bytes.fromhex("5500010d"))
+        self.client.start_notify.side_effect = notify
+        await self.reader._async_update_data()
+        callback = connector.establish_connection.call_args.kwargs["disconnected_callback"]
+        self.client.is_connected = False
+        callback(self.client)
+        self.assertIsNone(self.reader._client)
+        self.assertIsNone(self.reader._latest_temperatures)
+        self.assertFalse(self.reader.last_update_success)
+
+    async def test_persistent_stale_notifications_release_slot(self):
+        self.reader.mode = "persistent"
+        self.reader._client = self.client
+        self.reader._latest_temperatures = (26.9,)
+        self.reader._last_notification_at = monotonic() - 31
+        bt.async_last_service_info = lambda *a, **kw: None
+        with self.assertRaises(UpdateFailed):
+            await self.reader._async_update_data()
+        self.client.disconnect.assert_awaited_once()
+        self.assertIsNone(self.reader._latest_temperatures)
+
+    async def test_persistent_failed_subscription_releases_slot(self):
+        self.reader.mode = "persistent"
+        self.client.start_notify.side_effect = BleakError("test failure")
+        with self.assertRaises(UpdateFailed):
+            await self.reader._async_update_data()
+        self.client.disconnect.assert_awaited_once()
+        self.assertIsNone(self.reader._client)
+
+    async def test_persistent_cancellation_releases_slot(self):
+        self.reader.mode = "persistent"
+        subscribed = asyncio.Event()
+        async def notify(*args):
+            subscribed.set()
+        self.client.start_notify.side_effect = notify
+        task = asyncio.create_task(self.reader._async_update_data())
+        await subscribed.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.client.disconnect.assert_awaited_once()
+        self.assertIsNone(self.reader._client)
+
+    async def test_configured_interval(self):
+        reader = BFourCoordinator(object(), types.SimpleNamespace(options={
+            "connection_mode": "persistent", "update_interval": 12,
+        }, data={"address": "AA:BB:CC:DD:EE:FF", "probe_count": 1}))
+        self.assertEqual(reader.mode, "persistent")
+        self.assertEqual(reader.interval, 12)
+
     async def test_connect_failure(self):
         connector.establish_connection.side_effect = BleakError("unreachable")
         with self.assertRaises(UpdateFailed):
@@ -191,12 +266,13 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         forward = AsyncMock()
         hass = types.SimpleNamespace(config_entries=types.SimpleNamespace(async_forward_entry_setups=forward))
         unload_callbacks = []
-        entry = types.SimpleNamespace(async_on_unload=unload_callbacks.append)
+        entry = types.SimpleNamespace(async_on_unload=unload_callbacks.append,
+                                      add_update_listener=lambda callback: lambda: None)
         with patch.object(lifecycle, "BFourCoordinator", return_value=reader):
             self.assertTrue(await lifecycle.async_setup_entry(hass, entry))
         self.assertIs(entry.runtime_data, reader)
         forward.assert_awaited_once_with(entry, ["sensor", "button"])
-        self.assertEqual(len(unload_callbacks), 1)
+        self.assertEqual(len(unload_callbacks), 2)
         unload_callbacks[0]()
         self.assertEqual(unsubscribed, [True])
 
