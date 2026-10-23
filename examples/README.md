@@ -1,3 +1,5 @@
+> v0.5.0 adds built-in target and Arm alerts controls with an optional notification blueprint. See the [main README](../README.md#target-temperatures-and-alerts-v050) and [built-in controls card](integration_controls.yaml). The examples below are an alternative helper-based approach and are not required by the blueprint.
+
 # Target selector and notification examples
 
 These are optional Home Assistant examples. The integration only reads temperatures; it never writes an alarm or target to the base.

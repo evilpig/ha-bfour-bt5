@@ -1,0 +1,18 @@
+# Manual dashboard card for v0.5.0+. Adjust entity IDs if your installation differs.
+type: entities
+title: BFOUR cooking thermometer
+entities:
+  - entity: sensor.bfour_grill_bt5_0_probe_1
+    name: Current temperature
+  - entity: number.bfour_grill_bt5_0_probe_1_target_temperature
+    name: Target temperature
+  - entity: switch.bfour_grill_bt5_0_probe_1_arm_alerts
+    name: Arm cooking alerts
+  - entity: binary_sensor.bfour_grill_bt5_0_probe_1_target_reached
+    name: Target reached
+  - entity: binary_sensor.bfour_grill_bt5_0_probe_1_reading_stale
+    name: Reading stale
+  - entity: sensor.bfour_grill_bt5_0_probe_1_last_valid_temperature
+    name: Last valid temperature
+  - entity: button.bfour_grill_bt5_0_reconnect
+    name: Reconnect / refresh

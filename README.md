@@ -22,7 +22,8 @@ The expected Bluetooth name is `Grill BT5.0`, service `FFB0`, and notification c
 - Automatic Bluetooth discovery and manual address entry.
 - Temperature sensors with 0.1-degree precision and missing-probe handling.
 - Configure → Temperature unit: Celsius or Fahrenheit, using Home Assistant's built-in conversion. Existing entity IDs and history are retained.
-- Read-only: no target, alarm, preset, or display-unit commands are sent to the thermometer.
+- Local per-probe target slider, Arm alerts switch, target-reached latch, and stale-data alert signals.
+- No target, alarm, preset, or display-unit commands are sent to the thermometer.
 - Automatic reconnection after a fresh advertisement, plus a **Reconnect** button on the device page.
 - Choose **Persistent** (stay connected) or **Intermittent** (connect/read/disconnect).
 - Editable update interval: **5–300 seconds**.
@@ -83,7 +84,7 @@ Automatic recovery depends on the thermometer advertising, the proxy being reach
 
 ## Temperature units
 
-Open Settings → Devices & services → BFOUR Grill BT5.0 → **Configure**. Choose Celsius or Fahrenheit. This applies a display unit to all temperature sensors owned by the entry and preserves other sensor options. You can subsequently override an individual sensor in its entity settings. The physical thermometer display is unchanged.
+Open Settings → Devices & services → BFOUR Grill BT5.0 → **Configure**. Choose Celsius or Fahrenheit. This applies a display unit to all temperature sensors owned by the entry and preserves other sensor options. You can subsequently override an individual temperature sensor or target number in its entity settings. The physical thermometer display is unchanged.
 
 ## Troubleshooting
 
@@ -107,9 +108,38 @@ Temperature frames start with `55 00`; consecutive big-endian unsigned 16-bit va
 
 Negative-temperature encoding is not implemented. This integration does not set cooking targets or control the base's alarms. Home Assistant updates follow your configured interval; persistent notifications arrive independently at the device’s rate. Bluetooth behavior and channel layouts can vary across models and firmware.
 
-## Target temperatures and alerts
+## Target temperatures and alerts (v0.5.0)
 
-Use native Home Assistant helpers and automations so you can pick any notification destination. See [the target selector, dashboard, and alert examples](examples/README.md). These examples are optional and are not installed by this integration. They do not write targets to the thermometer.
+Each configured probe has:
+
+- **Target temperature** slider: a Home Assistant-only target. The numeric slider range is 0–300°C / 32–572°F for protocol-family flexibility; it is not a rating or recommended operating range for your probe. The tested BF-30 probe is rated only to 100°C / 212°F. Respect your model's manual. The initial 60°C / 140°F is a UI default, not a food-safety recommendation.
+- **Arm alerts** switch: alerts are off until you arm a cook. Disarm after cooking so powering the thermometer off does not generate warnings.
+- **Target reached** binary sensor: turns on at or above the target and remains latched until disarm/re-arm or a target change. A fresh sample is needed. Arming an already-hot, recently read probe or lowering the target can trigger it immediately.
+- **Reading stale** binary sensor: on only while armed, after no valid temperature from that probe for the configured timeout.
+- **Last valid temperature** diagnostic timestamp: actual valid data, not merely a cached publication. It stays visible while the probe is unavailable.
+
+Configure → **Warn after no valid probe data** sets the timeout from 1–120 minutes (default 5). It applies to all probes in that integration entry. The health check runs every 15 seconds, so a warning can follow the timeout by up to 15 seconds, plus automation/delivery latency. An unchanged valid temperature refreshes freshness; `FFFF` / missing-probe values do not. This detects a missing probe even if the base remains connected.
+
+Targets are stored in Celsius internally and converted by Home Assistant. The Configure unit option applies to both temperature sensors and target sliders, preserving the actual target when switching between °C and °F. Targets, arm state, and target latches survive integration reloads/restarts. Last-valid timestamps are persisted at most roughly every 30 seconds during normal streaming, so an unexpected crash can lose up to about 30 seconds of timestamp precision. Arm state is restored intentionally; disarm to cancel an active cook.
+
+### Optional notification blueprint
+
+[![Import alert blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fevilpig%2Fha-bfour-bt5%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fbfour_cooking_alerts.yaml)
+
+1. Install/update the integration and restart Home Assistant.
+2. Import [BFOUR cooking alerts](blueprints/automation/bfour_cooking_alerts.yaml) using the button above, then create an automation from it.
+3. Pick one probe's **Arm alerts**, **Target reached**, and **Reading stale** entities. All three must belong to the same probe.
+4. Choose any phone/notify destinations, a TTS engine, and one or more media players. Empty destinations are skipped. Local Home Assistant notifications are on by default and can be disabled.
+5. Customize the target and stale-data phrases, title, TTS language, and provider-specific voice/options if desired. Available phrase variables: `probe`, `temperature`, `target`, `unit`, `stale_minutes`, `last_valid_at`.
+6. Set your target and arm the probe. Disarm when finished; the blueprint does not automatically disarm after the target, so stale monitoring can continue.
+
+The blueprint sends on alert transitions, not on every sample. A target stays latched through fluctuations and short reconnections; the stale flag clears after valid data resumes, allowing a new warning for a later outage. Changing a target intentionally re-arms the target latch. Home Assistant restarts/reloading an automation can affect whether an already-active flag is announced; this is not a guaranteed notification-delivery system. Inspect alert sensors as well as notifications.
+
+Mobile delivery uses `notify.send_message` entities (available in supported Home Assistant versions). If your phone is missing, register it for push notifications in the Companion app. TTS uses the modern `tts.speak` action; voices and language support depend on the selected provider. Only select destinations you want to notify. Each delivery path uses continue-on-error so a failed phone delivery does not prevent the speaker/local attempt; check automation traces for failures.
+
+The integration itself never sends messages or speaks. Notification routing lives in the optional blueprint, so users can inspect, edit, or disable it. Notifications require Home Assistant, the automation, and the chosen destination to be functioning. A Home Assistant or network outage can prevent alerts altogether.
+
+[Dashboard card for the built-in controls](examples/integration_controls.yaml). The [older helper-based examples](examples/README.md) remain available for custom automation workflows; do not use both systems for the same cook unless you intentionally want separate alerts.
 
 ## Development
 
@@ -117,7 +147,7 @@ Use native Home Assistant helpers and automations so you can pick any notificati
 python3 -m unittest discover -s tests -v
 ```
 
-Tests cover actual BF-30-shaped frames, malformed data, missing probes, idle suppression and recovery, persistent connection reuse and cleanup, advertisement debounce, connection failures, and cleanup. Transport tests use mocks and do not prove compatibility with untested hardware. GitHub Actions runs these tests and HACS validation.
+Tests cover actual BF-30-shaped frames, malformed data, missing probes, idle suppression and recovery, persistent connection reuse and cleanup, advertisement debounce, connection failures, and cleanup. Alert-state tests cover latching, arming, missing probes, stale timers, and restoration. Transport tests use mocks and do not prove compatibility with untested hardware. GitHub Actions runs these tests and HACS validation.
 
 ## Credits
 

@@ -17,6 +17,7 @@ package = types.ModuleType("bt5_test")
 package.__path__ = [str(BASE)]
 sys.modules["bt5_test"] = package
 from bt5_test.protocol import parse_temperatures
+from bt5_test.alert_state import ProbeAlerts
 
 
 class ProtocolTests(unittest.TestCase):
@@ -85,6 +86,9 @@ stub_module("homeassistant.components")
 bt = stub_module("homeassistant.components.bluetooth",
                  async_ble_device_from_address=lambda *a, **kw: object())
 stub_module("homeassistant.helpers")
+stub_module("homeassistant.helpers.dispatcher", async_dispatcher_send=lambda *a: None)
+stub_module("homeassistant.helpers.event", async_track_time_interval=lambda *a: lambda: None)
+stub_module("homeassistant.helpers.storage", Store=lambda *a: object())
 stub_module("homeassistant.helpers.update_coordinator",
             DataUpdateCoordinator=CoordinatorStub, UpdateFailed=UpdateFailed)
 from bt5_test.coordinator import BFourCoordinator
@@ -250,10 +254,88 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.client.disconnect.assert_not_awaited()
 
 
+class AlertStateTests(unittest.TestCase):
+    def test_unarmed_never_alerts(self):
+        state = ProbeAlerts(target_c=25)
+        state.record(30, 1000, 60)
+        state.evaluate(2000, 60)
+        self.assertFalse(state.target_reached)
+        self.assertFalse(state.stale)
+
+    def test_target_latches_and_rearm_resets(self):
+        state = ProbeAlerts(target_c=30)
+        state.set_armed(True, 1000, 60)
+        state.record(30, 1001, 60)
+        self.assertTrue(state.target_reached)
+        state.record(29, 1002, 60)
+        self.assertTrue(state.target_reached)
+        state.set_armed(False, 1003, 60)
+        self.assertFalse(state.target_reached)
+        state.set_armed(True, 1004, 60)
+        self.assertFalse(state.target_reached)
+
+    def test_unchanged_temperature_refreshes_freshness(self):
+        state = ProbeAlerts()
+        state.set_armed(True, 1000, 60)
+        state.record(20, 1050, 60)
+        state.record(20, 1100, 60)
+        state.evaluate(1159, 60)
+        self.assertFalse(state.stale)
+        state.evaluate(1160, 60)
+        self.assertTrue(state.stale)
+
+    def test_missing_probe_does_not_refresh_timestamp(self):
+        state = ProbeAlerts()
+        state.set_armed(True, 1000, 60)
+        state.record(20, 1001, 60)
+        state.record(None, 1061, 60)
+        self.assertEqual(state.last_valid_at, 1001)
+        self.assertTrue(state.stale)
+        state.record(20, 1062, 60)
+        self.assertFalse(state.stale)
+
+    def test_arming_offline_starts_new_warning_timer(self):
+        state = ProbeAlerts(last_valid_at=1, current_c=None)
+        state.set_armed(True, 1000, 60)
+        state.evaluate(1059, 60)
+        self.assertFalse(state.stale)
+        state.evaluate(1060, 60)
+        self.assertTrue(state.stale)
+
+    def test_stale_cached_value_does_not_trigger_target_on_arm(self):
+        state = ProbeAlerts(target_c=25, current_c=30, last_valid_at=1)
+        state.set_armed(True, 1000, 60)
+        self.assertFalse(state.target_reached)
+
+    def test_lowering_target_rechecks_fresh_reading(self):
+        state = ProbeAlerts(target_c=40)
+        state.record(30, 1000, 60)
+        state.set_armed(True, 1001, 60)
+        self.assertFalse(state.target_reached)
+        state.set_target(30, 1002, 60)
+        self.assertTrue(state.target_reached)
+
+    def test_restore_preserves_units_and_arm_timestamp(self):
+        state = ProbeAlerts(target_c=65.5, armed=True, armed_at=1000, last_valid_at=1001, target_reached=True)
+        restored = ProbeAlerts.restore(state.serialize())
+        self.assertEqual(restored.target_c, 65.5)
+        self.assertEqual(restored.armed_at, 1000)
+        self.assertTrue(restored.armed)
+        self.assertTrue(restored.target_reached)
+        self.assertIsNone(restored.current_c)
+        restored.evaluate(1061, 60)
+        self.assertTrue(restored.stale)
+
+    def test_invalid_targets_rejected(self):
+        for value in (-1, 301, float("nan"), float("inf")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                ProbeAlerts().set_target(value, 1000, 60)
+
+
 class SetupTests(unittest.IsolatedAsyncioTestCase):
     async def test_offline_start_still_loads_sensor_and_reconnect_button(self):
         from unittest.mock import patch
-        stub_module("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BUTTON="button"))
+        stub_module("homeassistant.const", Platform=types.SimpleNamespace(SENSOR="sensor", BUTTON="button", NUMBER="number", SWITCH="switch", BINARY_SENSOR="binary_sensor"))
         bt.BluetoothScanningMode = types.SimpleNamespace(PASSIVE="passive")
         unsubscribed = []
         bt.async_register_callback = lambda *a, **kw: lambda: unsubscribed.append(True)
@@ -268,10 +350,11 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         unload_callbacks = []
         entry = types.SimpleNamespace(async_on_unload=unload_callbacks.append,
                                       add_update_listener=lambda callback: lambda: None)
-        with patch.object(lifecycle, "BFourCoordinator", return_value=reader):
+        manager = types.SimpleNamespace(async_load=AsyncMock(), start=lambda: None)
+        with patch.object(lifecycle, "BFourCoordinator", return_value=reader), patch.object(lifecycle, "AlertManager", return_value=manager):
             self.assertTrue(await lifecycle.async_setup_entry(hass, entry))
         self.assertIs(entry.runtime_data, reader)
-        forward.assert_awaited_once_with(entry, ["sensor", "button"])
+        forward.assert_awaited_once_with(entry, ["sensor", "button", "number", "switch", "binary_sensor"])
         self.assertEqual(len(unload_callbacks), 2)
         unload_callbacks[0]()
         self.assertEqual(unsubscribed, [True])

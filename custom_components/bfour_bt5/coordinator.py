@@ -28,6 +28,7 @@ class BFourCoordinator(DataUpdateCoordinator):
                          update_interval=timedelta(seconds=self.interval))
         self.address = entry.data["address"]
         self.probe_count = entry.data["probe_count"]
+        self.alerts = None
         self.last_packet = None
         self._last_wake_attempt = 0.0
         self._wake_task = None
@@ -74,7 +75,12 @@ class BFourCoordinator(DataUpdateCoordinator):
         async with self._read_lock:
             if self._closing:
                 raise UpdateFailed("Thermometer integration is stopping")
-            return await self._read()
+            try:
+                return await self._read()
+            except UpdateFailed:
+                if self.alerts is not None:
+                    self.alerts.mark_disconnected()
+                raise
 
     async def _read(self):
         persistent = self.mode == "persistent"
@@ -108,6 +114,8 @@ class BFourCoordinator(DataUpdateCoordinator):
                 result = parse_temperatures(bytes(payload), self.probe_count)
             except ValueError:
                 return
+            if self.alerts is not None:
+                self.alerts.record(result)
             if persistent:
                 self._latest_temperatures = result
                 self._last_notification_at = monotonic()
@@ -119,6 +127,8 @@ class BFourCoordinator(DataUpdateCoordinator):
                 self._latest_temperatures = None
                 self._last_notification_at = 0.0
                 packet_received.set()
+                if self.alerts is not None:
+                    self.alerts.mark_disconnected()
                 if not self._closing:
                     self.async_set_update_error(UpdateFailed("Thermometer disconnected; waiting to reconnect"))
 

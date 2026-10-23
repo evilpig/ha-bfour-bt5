@@ -60,15 +60,17 @@ class BFourOptionsFlow(OptionsFlow):
             for entity in er.async_entries_for_config_entry(
                 registry, self.config_entry.entry_id
             ):
-                if entity.domain != "sensor" or entity.platform != DOMAIN:
+                if (entity.domain not in ("sensor", "number") or entity.platform != DOMAIN
+                        or entity.original_device_class != "temperature"):
                     continue
-                options = dict(entity.options.get("sensor", {}))
+                options = dict(entity.options.get(entity.domain, {}))
                 options["unit_of_measurement"] = unit
-                registry.async_update_entity_options(entity.entity_id, "sensor", options)
+                registry.async_update_entity_options(entity.entity_id, entity.domain, options)
             return self.async_create_entry(title="", data={
                 **self.config_entry.options, "temperature_unit": unit,
                 "connection_mode": user_input["connection_mode"],
                 "update_interval": user_input["update_interval"],
+                "stale_minutes": user_input["stale_minutes"],
             })
         return self.async_show_form(
             step_id="init",
@@ -79,6 +81,8 @@ class BFourOptionsFlow(OptionsFlow):
                 vol.Required("update_interval", default=self.config_entry.options.get(
                     "update_interval", 30
                 )): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
+                vol.Required("stale_minutes", default=self.config_entry.options.get("stale_minutes", 5)):
+                    vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
                 vol.Required("temperature_unit", default=self.config_entry.options.get(
                     "temperature_unit", self.hass.config.units.temperature_unit
                 )): vol.In({"°C": "Celsius (°C)", "°F": "Fahrenheit (°F)"}),

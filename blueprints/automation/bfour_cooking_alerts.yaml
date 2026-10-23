@@ -1,0 +1,199 @@
+blueprint:
+  name: BFOUR - cooking targets and stale-data alerts
+  description: >-
+    Alerts while a probe's Arm alerts switch is on. Choose the same probe's
+    Target reached, Reading stale, and Arm alerts entities. Supports mobile
+    notification targets, selectable TTS engines and speakers, and editable
+    phrases. Install BFOUR Grill BT5.0 v0.5.0 or newer first. Empty destinations
+    are skipped. No notification settings are written to the thermometer.
+  domain: automation
+  author: evilpig
+  source_url: https://github.com/evilpig/ha-bfour-bt5/blob/main/blueprints/automation/bfour_cooking_alerts.yaml
+  homeassistant:
+    min_version: "2026.10.0"
+  input:
+    probe_entities:
+      name: Probe controls
+      input:
+        armed_switch:
+          name: Arm alerts switch
+          selector:
+            entity:
+              filter:
+                - domain: switch
+                  integration: bfour_bt5
+        target_reached:
+          name: Target reached binary sensor (same probe)
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+                  integration: bfour_bt5
+        reading_stale:
+          name: Reading stale binary sensor (same probe)
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+                  integration: bfour_bt5
+    destinations:
+      name: Notifications
+      input:
+        local_notification:
+          name: Show a Home Assistant notification
+          default: true
+          selector:
+            boolean:
+        mobile_target:
+          name: Mobile / notify destinations (optional)
+          description: Select phone notify entities, devices, or a notification group.
+          default: {}
+          selector:
+            target:
+              entity:
+                domain: notify
+        tts_engine:
+          name: TTS engine (optional)
+          description: Select one installed TTS engine entity.
+          default: {}
+          selector:
+            target:
+              entity:
+                domain: tts
+        media_players:
+          name: TTS speakers (optional)
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: media_player
+              multiple: true
+    messages:
+      name: Alert messages
+      collapsed: true
+      input:
+        alert_title:
+          name: Notification title
+          default: "BFOUR Probe {{ probe }}"
+          selector:
+            text:
+        target_phrase:
+          name: Target reached message / spoken phrase
+          description: "Variables: probe, temperature, target, unit, stale_minutes, last_valid_at."
+          default: "Probe {{ probe }} reached {{ temperature }} {{ unit }}. Target {{ target }} {{ unit }}."
+          selector:
+            text:
+              multiline: true
+        stale_phrase:
+          name: Stale-data message / spoken phrase
+          description: "Variables: probe, temperature, target, unit, stale_minutes, last_valid_at."
+          default: "No valid temperature from probe {{ probe }} for {{ stale_minutes }} minutes. Check the thermometer and Bluetooth connection."
+          selector:
+            text:
+              multiline: true
+    speech_settings:
+      name: TTS settings
+      collapsed: true
+      input:
+        tts_language:
+          name: Language (optional)
+          description: Leave blank to use your TTS engine's default.
+          default: ""
+          selector:
+            text:
+        tts_options:
+          name: Provider-specific TTS options
+          description: Optional voice or other settings supported by the selected engine.
+          default: {}
+          selector:
+            object:
+
+mode: queued
+max: 10
+max_exceeded: silent
+triggers:
+  - trigger: state
+    entity_id: !input target_reached
+    to: "on"
+    id: target
+  - trigger: state
+    entity_id: !input reading_stale
+    to: "on"
+    id: stale
+conditions:
+  - condition: state
+    entity_id: !input armed_switch
+    state: "on"
+actions:
+  - variables:
+      alert_message: ""
+      local_notification: !input local_notification
+      probe: "{{ trigger.to_state.attributes.get('probe', 1) }}"
+      temperature: "{{ trigger.to_state.attributes.get('temperature') }}"
+      target: "{{ trigger.to_state.attributes.get('target_temperature') }}"
+      unit: "{{ trigger.to_state.attributes.get('temperature_unit', '') }}"
+      stale_minutes: "{{ trigger.to_state.attributes.get('stale_minutes', 5) }}"
+      last_valid_at: "{{ trigger.to_state.attributes.get('last_valid_at') }}"
+      mobile_target: !input mobile_target
+      tts_engine: !input tts_engine
+      media_players: !input media_players
+      tts_language: !input tts_language
+  - variables:
+      notification_title: !input alert_title
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: target
+        sequence:
+          - variables:
+              alert_message: !input target_phrase
+    default:
+      - variables:
+          alert_message: !input stale_phrase
+  - if:
+      - condition: template
+        value_template: "{{ local_notification }}"
+    then:
+      - action: persistent_notification.create
+        continue_on_error: true
+        data:
+          title: "{{ notification_title }}"
+          message: "{{ alert_message }}"
+          notification_id: "bfour_{{ trigger.entity_id | replace('.', '_') }}"
+  - if:
+      - condition: template
+        value_template: "{{ mobile_target | length > 0 }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target: !input mobile_target
+        data:
+          title: "{{ notification_title }}"
+          message: "{{ alert_message }}"
+  - if:
+      - condition: template
+        value_template: "{{ tts_engine | length > 0 and media_players | length > 0 }}"
+    then:
+      - repeat:
+          for_each: !input media_players
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ tts_language | trim | length > 0 }}"
+              then:
+                - action: tts.speak
+                  continue_on_error: true
+                  target: !input tts_engine
+                  data:
+                    media_player_entity_id: "{{ repeat.item }}"
+                    message: "{{ alert_message }}"
+                    language: !input tts_language
+                    options: !input tts_options
+              else:
+                - action: tts.speak
+                  continue_on_error: true
+                  target: !input tts_engine
+                  data:
+                    media_player_entity_id: "{{ repeat.item }}"
+                    message: "{{ alert_message }}"
+                    options: !input tts_options

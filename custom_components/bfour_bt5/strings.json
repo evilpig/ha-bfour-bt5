@@ -28,7 +28,8 @@
         "data": {
           "temperature_unit": "Temperature unit",
           "connection_mode": "Connection mode",
-          "update_interval": "Update interval (seconds)"
+          "update_interval": "Update interval (seconds)",
+          "stale_minutes": "Warn after no valid probe data (minutes, while armed)"
         }
       }
     }
