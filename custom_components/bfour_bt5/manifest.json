@@ -1,0 +1,24 @@
+{
+  "domain": "bfour_bt5",
+  "name": "BFOUR Grill BT5.0",
+  "version": "0.3.0",
+  "bluetooth": [
+    {
+      "local_name": "Grill BT5.0",
+      "service_uuid": "0000ffb0-0000-1000-8000-00805f9b34fb",
+      "connectable": true
+    }
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth"
+  ],
+  "requirements": [],
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "documentation": "https://github.com/evilpig/ha-bfour-bt5",
+  "issue_tracker": "https://github.com/evilpig/ha-bfour-bt5/issues",
+  "codeowners": [
+    "@evilpig"
+  ]
+}

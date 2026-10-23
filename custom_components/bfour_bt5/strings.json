@@ -1,0 +1,34 @@
+{
+  "title": "BFOUR Grill BT5.0",
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Connect your Grill BT5.0 thermometer",
+        "description": "Disconnect any phone apps using the thermometer. Enable device connections on your Bluetooth proxy. BF-30 is tested; other Grill BT5.0 models require verification.",
+        "data": {
+          "address": "Bluetooth address",
+          "probe_count": "Number of temperature channels"
+        }
+      }
+    },
+    "error": {
+      "invalid_address": "Enter an address such as AA:BB:CC:DD:EE:FF"
+    },
+    "abort": {
+      "already_configured": "This thermometer is already configured",
+      "unsupported_device": "This device does not advertise the BT5 service"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Temperature display",
+        "description": "Choose the display unit for all probes. Home Assistant converts the readings; the thermometer display is unchanged. You can also choose a unit for each sensor in its entity settings.",
+        "data": {
+          "temperature_unit": "Temperature unit"
+        }
+      }
+    }
+  }
+}
